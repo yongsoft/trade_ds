@@ -327,13 +327,13 @@ def analyze_with_deepseek(price_data):
 
 def execute_trade(signal_data, price_data):
     """执行交易"""
-    global position
+
 
     current_position = get_current_position()
 
     logger.info(f"交易信号: {signal_data['signal']}, 信心程度: {signal_data['confidence']}")
     logger.info(f"理由: {signal_data['reason']}")
-    logger.info(f"止损: ${signal_data['stop_loss']:,.2f}, 止盈: ${signal_data['take_profit']:,.2f}")
+    logger.info(f"当前持仓: {current_position}")
 
     if TRADE_CONFIG['test_mode']:
         logger.info("测试模式 - 仅模拟交易")
@@ -342,60 +342,41 @@ def execute_trade(signal_data, price_data):
     try:
         if signal_data['signal'] == 'BUY':
             if current_position and current_position['side'] == 'short':
-                logger.info("平空仓并开多仓...")
-                # 先平空仓，再开多仓
+                logger.info("平空仓...")
                 exchange.create_market_buy_order(
                     TRADE_CONFIG['symbol'],
-                    current_position['size']  # 平仓数量
+                    current_position['size'],
+                    {'posSide': 'short'}
                 )
                 logger.info(f"平空仓成功，数量: {current_position['size']}")
-                
-                time.sleep(1)  # 等待订单完成
-                
-                exchange.create_market_buy_order(
-                    TRADE_CONFIG['symbol'],
-                    TRADE_CONFIG['amount']  # 开仓数量
-                )
-                logger.info(f"开多仓成功，数量: {TRADE_CONFIG['amount']}")
-                
-            elif not current_position:
+            elif not current_position or current_position['side'] == 'long':
                 logger.info("开多仓...")
                 exchange.create_market_buy_order(
                     TRADE_CONFIG['symbol'],
-                    TRADE_CONFIG['amount']
+                    TRADE_CONFIG['amount'],
+                    {'posSide': 'long'}
                 )
                 logger.info(f"开多仓成功，数量: {TRADE_CONFIG['amount']}")
-            else:
-                logger.info("已持有多仓，无需操作")
 
         elif signal_data['signal'] == 'SELL':
             if current_position and current_position['side'] == 'long':
-                logger.info("平多仓并开空仓...")
+                logger.info("平多仓..")
                 # 先平多仓，再开空仓
                 exchange.create_market_sell_order(
                     TRADE_CONFIG['symbol'],
-                    current_position['size']  # 平仓数量
+                    current_position['size'],
+                    {'posSide': 'long'}
                 )
                 logger.info(f"平多仓成功，数量: {current_position['size']}")
-                
-                time.sleep(1)  # 等待订单完成
-                
-                exchange.create_market_sell_order(
-                    TRADE_CONFIG['symbol'],
-                    TRADE_CONFIG['amount']  # 开仓数量
-                )
-                logger.info(f"开空仓成功，数量: {TRADE_CONFIG['amount']}")
-                
-            elif not current_position:
+            elif not current_position or current_position['side'] == 'short':
                 logger.info("开空仓...")
                 exchange.create_market_sell_order(
                     TRADE_CONFIG['symbol'],
-                    TRADE_CONFIG['amount']
+                    TRADE_CONFIG['amount'],
+                     {'posSide': 'short'}
                 )
                 logger.info(f"开空仓成功，数量: {TRADE_CONFIG['amount']}")
-            else:
-                logger.info("已持有空仓，无需操作")
-
+                
         elif signal_data['signal'] == 'HOLD':
             logger.info("建议观望，不执行交易")
             return
