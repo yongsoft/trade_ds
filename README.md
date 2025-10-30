@@ -73,11 +73,6 @@ DEEPSEEK_API_KEY=your_deepseek_api_key_here
 BINANCE_API_KEY=your_binance_api_key
 BINANCE_SECRET=your_binance_secret
 
-# OKX API (for deepseek_okx.py)
-OKX_API_KEY=your_okx_api_key
-OKX_SECRET=your_okx_secret
-OKX_PASSWORD=your_okx_passphrase
-```
 
 ## Configuration
 

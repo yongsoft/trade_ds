@@ -96,7 +96,7 @@ TRADE_CONFIG = {
         'high_confidence_multiplier': 1.5,
         'medium_confidence_multiplier': 1.0,
         'low_confidence_multiplier': 0.5,
-        'max_position_ratio': 0.2,  # 单次最大仓位比例
+        'max_position_ratio': 0.3,  # 单次最大仓位比例
         'trend_strength_multiplier': 1.2
     }
 }
