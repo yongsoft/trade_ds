@@ -791,13 +791,6 @@ def execute_trade(signal_data, price_data):
                     {'positionSide': 'long'}
                 )
                 logger.info(f"平多仓成功，数量: {current_position['size']}")
-            elif not current_position or current_position['side'] == 'short':
-                logger.info("开空仓...")
-                exchange.create_market_sell_order(
-                    TRADE_CONFIG['symbol'],
-                    position_size,
-                    {'positionSide': 'short'}
-                )
             elif current_position and current_position['side'] == 'short':
                 size_diff = position_size - current_position['size']
                 if abs(size_diff) >= 0.001:
@@ -813,7 +806,7 @@ def execute_trade(signal_data, price_data):
                         exchange.create_market_buy_order(
                             TRADE_CONFIG['symbol'],
                             round(abs(size_diff), 3),
-                            {'positionSide': 'short', 'reduceOnly': True}
+                            {'positionSide': 'short'}
                         )
                 else:
                     logger.info("已有空头持仓，仓位合适保持现状")
