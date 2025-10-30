@@ -39,7 +39,7 @@ CONFIG = {
     'script_path': 'deepseek.py',  # 要监控的脚本
     'python_cmd': sys.executable,  # 使用当前Python解释器
     'check_interval': 60,  # 检查间隔（秒）
-    'log_timeout': 300,  # 日志超时时间（秒），5分钟无日志更新视为僵死
+    'log_timeout': 1000,  # 日志超时时间（秒），5分钟无日志更新视为僵死
     'max_restart_attempts': 3,  # 连续重启最大次数
     'restart_cooldown': 300,  # 重启冷却时间（秒）
     'memory_threshold': 90,  # 内存使用率阈值（%）

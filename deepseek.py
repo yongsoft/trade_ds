@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Any
 import schedule
 from openai import OpenAI
 import ccxt
@@ -96,7 +97,8 @@ TRADE_CONFIG = {
         'high_confidence_multiplier': 1.5,
         'medium_confidence_multiplier': 1.0,
         'low_confidence_multiplier': 0.5,
-        'max_position_ratio': 0.3,  # 单次最大仓位比例
+        'position_ratio_max': 0.99,  # 总最大仓位比例
+        'position_ratio_single_trade': 0.2,
         'trend_strength_multiplier': 1.2
     }
 }
@@ -112,7 +114,7 @@ def setup_exchange():
     """设置交易所参数"""
     try:
         # 获取合约规格信息
-        logger.info("🔍 获取BTC合约规格...")
+        logger.info("获取BTC合约规格...")
         markets = exchange.load_markets()
         btc_market = markets[TRADE_CONFIG['symbol']]
         #logger.info(f"市场参数: {markets}")
@@ -129,9 +131,9 @@ def setup_exchange():
         # 获取当前持仓状态
         current_pos = get_current_position()
         if current_pos:
-            logger.info(f"📦 当前持仓: {current_pos['side']}仓 数量:{current_pos['size']}")
+            logger.info(f"当前持仓: {current_pos['side']}仓 数量:{current_pos['size']}")
         else:
-            logger.info("📦 当前无持仓")
+            logger.info("当前无持仓")
 
         return True
     except ccxt.NetworkError as e:
@@ -271,7 +273,7 @@ def get_sentiment_indicators():
                         data_delay = int((datetime.now() - datetime.strptime(
                             period['startTime'], '%Y-%m-%d %H:%M:%S')).total_seconds() // 60)
 
-                        logger.info(f"✅ 使用情绪数据时间: {period['startTime']} (延迟: {data_delay}分钟)")
+                        logger.info(f"使用情绪数据时间: {period['startTime']} (延迟: {data_delay}分钟)")
 
                         return {
                             'positive_ratio': positive,
@@ -683,8 +685,13 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
     try:
         balance = exchange.fetch_balance()
         usdt_balance = balance['USDT']['free']
+        usdt_used = balance['USDT']['used']
+        usdt_total = usdt_used + usdt_balance
         base_usdt = config['base_usdt_amount']
-        logger.info(f"💰 可用USDT余额: {usdt_balance:.2f}, 下单基数{base_usdt}")
+
+        position_ratio = usdt_used/usdt_total
+
+        logger.info(f"仓位情况 USDT： Used : {usdt_used:.2f} 可用: {usdt_balance:.2f}, 总共: {usdt_total:.2f}, 仓位比: {position_ratio:.2f}, 下单基数{base_usdt}")
 
         # 根据信心程度调整
         confidence_multiplier = {
@@ -695,29 +702,47 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
 
         # 根据趋势强度调整
         trend = price_data['trend_analysis'].get('overall', '震荡整理')
-        trend_multiplier = config['trend_strength_multiplier'] if trend in ['强势上涨', '强势下跌'] else 1.0
+        if trend in ['强势上涨', '强势下跌']:
+            trend_multiplier = config['trend_strength_multiplier']
+        else:
+            trend_multiplier = 1.0
 
-        # 根据RSI状态调整
+        # 根据RSI状态调整（超买超卖区域减仓）
         rsi = price_data['technical_data'].get('rsi', 50)
-        rsi_multiplier = 0.7 if rsi > 75 or rsi < 25 else 1.0
+        if rsi > 75 or rsi < 25:
+            rsi_multiplier = 0.7
+        else:
+            rsi_multiplier = 1.0
 
         # 计算建议投入USDT金额
-        suggested_usdt = base_usdt * confidence_multiplier * trend_multiplier * rsi_multiplier
-        max_usdt = usdt_balance * config['max_position_ratio']
-        final_usdt = min(suggested_usdt, max_usdt)
+
+        suggested_usdt = usdt_total * confidence_multiplier * trend_multiplier * rsi_multiplier
+        max_usdt = usdt_total * config['position_ratio_max']
+        
+    
+        strategy_usdt = min(suggested_usdt, max_usdt)
+
+        # 计算本次应该给的仓位
+        batch_usdt = usdt_used + (usdt_total * config['position_ratio_single_trade'])
+
+        final_usdt = min(strategy_usdt, batch_usdt)
 
         # 计算BTC数量
-        contract_size = TRADE_CONFIG.get('contract_size', 1)
-        amount = (final_usdt * TRADE_CONFIG['leverage']) / (price_data['price'] * contract_size)
+  
+        contract_size: Any = (final_usdt * TRADE_CONFIG['leverage']) / (price_data['price'] )
 
-        logger.info(f"📊 仓位计算: 信心{confidence_multiplier}x 趋势{trend_multiplier}x RSI{rsi_multiplier}x -> {final_usdt:.2f}USDT")
+        logger.info(f"仓位计算: 信心{confidence_multiplier}x 趋势{trend_multiplier}x RSI{rsi_multiplier}x -> This Batch : {batch_usdt}  Final: {final_usdt:.2f} USDT")
+
+
         
-        amount = round(max(amount, TRADE_CONFIG.get('min_amount', 0.002)), 3)
-        logger.info(f"🎯 最终仓位: {amount} BTC")
-        return amount
+        contract_size = round(max(contract_size, TRADE_CONFIG.get('min_amount', 0.002)), 3)
+
+        logger.info(f"仓位最终: {contract_size} BTC")
+
+        return contract_size
 
     except Exception as e:
-        logger.error(f"❗ 仓位计算失败，使用基础仓位: {e}")
+        logger.error(f"仓位计算失败，使用基础仓位: {e}")
         return 0.002
 
 
@@ -754,6 +779,13 @@ def execute_trade(signal_data, price_data):
                     {'positionSide': 'short'}
                 )
                 logger.info(f"平空仓成功，数量: {current_position['size']}")
+                # 开多仓   
+                exchange.create_market_buy_order(
+                    TRADE_CONFIG['symbol'],
+                    position_size,
+                    {'positionSide': 'long'}
+                )
+                logger.info(f"开多仓成功，数量: {position_size}")
             elif current_position and current_position['side'] == 'long':
                 size_diff = position_size - current_position['size']
                 if abs(size_diff) >= 0.002:
@@ -769,7 +801,7 @@ def execute_trade(signal_data, price_data):
                         exchange.create_market_sell_order(
                             TRADE_CONFIG['symbol'],
                             round(abs(size_diff), 3),
-                            {'positionSide': 'long', 'reduceOnly': True}
+                            {'positionSide': 'long'}
                         )
                 else:
                     logger.info("已有多头持仓，仓位合适保持现状")
@@ -780,6 +812,7 @@ def execute_trade(signal_data, price_data):
                     position_size,
                     {'positionSide': 'long'}
                 )
+                logger.info(f"开多仓成功，数量: {position_size}")
 
         elif signal_data['signal'] == 'SELL':
             if current_position and current_position['side'] == 'long':
@@ -791,6 +824,13 @@ def execute_trade(signal_data, price_data):
                     {'positionSide': 'long'}
                 )
                 logger.info(f"平多仓成功，数量: {current_position['size']}")
+                # 开空仓
+                exchange.create_market_sell_order(
+                    TRADE_CONFIG['symbol'],
+                    position_size,
+                    {'positionSide': 'short'}
+                )
+                logger.info(f"开空仓成功，数量: {position_size}")
             elif current_position and current_position['side'] == 'short':
                 size_diff = position_size - current_position['size']
                 if abs(size_diff) >= 0.002:
@@ -817,6 +857,7 @@ def execute_trade(signal_data, price_data):
                     position_size,
                     {'positionSide': 'short'}
                 )
+                logger.info(f"开空仓成功，数量: {position_size}")
 
         elif signal_data['signal'] == 'HOLD':
             logger.info("建议观望，不执行交易")
