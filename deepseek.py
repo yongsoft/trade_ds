@@ -79,7 +79,7 @@ except Exception as e:
 # 交易参数配置
 TRADE_CONFIG = {
     'symbol': 'BTC/USDT',
-    'amount': 0.001,  # 交易数量 (BTC)
+    'amount': 0.002,  # 交易数量 (BTC)
     'leverage': 10,  # 杠杆倍数
     'timeframe': '15m',  # 使用1小时K线，可改为15m
     'test_mode': False,  # 测试模式
@@ -96,7 +96,7 @@ TRADE_CONFIG = {
         'high_confidence_multiplier': 1.5,
         'medium_confidence_multiplier': 1.0,
         'low_confidence_multiplier': 0.5,
-        'max_position_ratio': 0.1,  # 单次最大仓位比例
+        'max_position_ratio': 0.2,  # 单次最大仓位比例
         'trend_strength_multiplier': 1.2
     }
 }
@@ -676,7 +676,7 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
 
     # 如果禁用智能仓位，使用固定仓位
     if not config.get('enable_intelligent_position', True):
-        fixed_amount = 0.001
+        fixed_amount = 0.002
         logger.info(f"🔧 智能仓位已禁用，使用固定仓位: {fixed_amount} BTC")
         return fixed_amount
 
@@ -712,13 +712,13 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
 
         logger.info(f"📊 仓位计算: 信心{confidence_multiplier}x 趋势{trend_multiplier}x RSI{rsi_multiplier}x -> {final_usdt:.2f}USDT")
         
-        amount = round(max(amount, TRADE_CONFIG.get('min_amount', 0.001)), 3)
+        amount = round(max(amount, TRADE_CONFIG.get('min_amount', 0.002)), 3)
         logger.info(f"🎯 最终仓位: {amount} BTC")
         return amount
 
     except Exception as e:
         logger.error(f"❗ 仓位计算失败，使用基础仓位: {e}")
-        return 0.001
+        return 0.002
 
 
 def execute_trade(signal_data, price_data):
@@ -756,7 +756,7 @@ def execute_trade(signal_data, price_data):
                 logger.info(f"平空仓成功，数量: {current_position['size']}")
             elif current_position and current_position['side'] == 'long':
                 size_diff = position_size - current_position['size']
-                if abs(size_diff) >= 0.001:
+                if abs(size_diff) >= 0.002:
                     if size_diff > 0:
                         logger.info(f"多仓加仓 {size_diff:.3f}...")
                         exchange.create_market_buy_order(
@@ -793,7 +793,7 @@ def execute_trade(signal_data, price_data):
                 logger.info(f"平多仓成功，数量: {current_position['size']}")
             elif current_position and current_position['side'] == 'short':
                 size_diff = position_size - current_position['size']
-                if abs(size_diff) >= 0.001:
+                if abs(size_diff) >= 0.002:
                     if size_diff > 0:
                         logger.info(f"空仓加仓 {size_diff:.3f}...")
                         exchange.create_market_sell_order(

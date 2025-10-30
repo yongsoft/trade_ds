@@ -46,4 +46,4 @@ log/
 *.sqlite3
 
 # local Shell Scripts
-*.sh
+up.sh
