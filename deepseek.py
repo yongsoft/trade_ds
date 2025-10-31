@@ -108,7 +108,7 @@ TRADE_CONFIG = {
         'enable_intelligent_position': True,  # 🆕 新增：是否启用智能仓位管理
         'base_usdt_amount': 100,  # USDT投入下单基数
         'high_confidence_multiplier': 1,
-        'medium_confidence_multiplier': 0.75,
+        'medium_confidence_multiplier': 0.8,
         'low_confidence_multiplier': 0.5,
         'position_ratio_max': 0.99,  # 总最大仓位比例
         'position_ratio_single_trade': 0.2,
@@ -624,7 +624,7 @@ def analyze_with_deepseek(price_data):
     }}
     """
 
-    logger.info("发送分析请求到DeepSeek")
+    #logger.info("发送分析请求到DeepSeek")
     logger.info(f"DeepSeek请求内容: {prompt}")
 
     try:
@@ -698,10 +698,11 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
 
     # 如果禁用智能仓位，使用固定仓位
     if not config.get('enable_intelligent_position', True):
-        fixed_amount = 0.002
+        fixed_amount = TRADE_CONFIG['amount']
         logger.info(f"🔧 智能仓位已禁用，使用固定仓位: {fixed_amount} BTC")
         return fixed_amount
-
+    if signal_data['signal']== 'HOLD':
+        return TRADE_CONFIG['amount']
     try:
         balance_latest = exchange.fetch_balance()
         usdt_balance = balance_latest['USDT']['free']
@@ -736,17 +737,27 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
 
         # 计算建议投入USDT金额
 
-        suggested_usdt = usdt_total * confidence_multiplier * trend_multiplier * rsi_multiplier
+        multip_ratio = confidence_multiplier * trend_multiplier * rsi_multiplier
+
+        suggested_usdt = usdt_total * multip_ratio
+
         max_usdt = usdt_total * config['position_ratio_max']
 
 
         strategy_usdt = min(suggested_usdt, max_usdt)
 
         # 计算本次应该给的仓位
-        batch_usdt = usdt_used + (usdt_total * config['position_ratio_single_trade'])
+        batch_usdt = usdt_used + (usdt_total * config['position_ratio_single_trade']) * multip_ratio*1.5
 
         final_usdt = min(strategy_usdt, batch_usdt)
 
+        # 买入信号的时候，不要轻易减仓
+        if signal_data['signal'] == 'BUY':
+            if final_usdt < usdt_used:
+                final_usdt = usdt_used
+
+        else:
+            final_usdt = usdt_total * config['position_ratio_single_trade']
         # 计算BTC数量
 
         contract_size: Any = (final_usdt * TRADE_CONFIG['leverage']) / (price_data['price'] )
@@ -838,7 +849,7 @@ def execute_trade(signal_data, price_data):
 
         elif signal_data['signal'] == 'SELL':
             if current_position and current_position['side'] == 'long':
-                logger.info("平多仓..")
+                logger.info("平多仓.....")
                 # 先平多仓，再开空仓
                 exchange.create_market_sell_order(
                     TRADE_CONFIG['symbol'],
@@ -846,33 +857,14 @@ def execute_trade(signal_data, price_data):
                     {'positionSide': 'long'}
                 )
                 logger.info(f"平多仓成功，数量: {current_position['size']}")
-                time.sleep(2)
-                # 开空仓
-                exchange.create_market_sell_order(
+            elif current_position and current_position['side'] == 'short':
+                logger.info(f"平空仓...")
+                exchange.create_market_buy_order(
                     TRADE_CONFIG['symbol'],
-                    position_size,
+                    current_position['size'],
                     {'positionSide': 'short'}
                 )
-                logger.info(f"开空仓成功，数量: {position_size}")
-            elif current_position and current_position['side'] == 'short':
-                size_diff = position_size - current_position['size']
-                if abs(size_diff) >= 0.002:
-                    if size_diff > 0:
-                        logger.info(f"空仓加仓 {size_diff:.3f}...")
-                        exchange.create_market_sell_order(
-                            TRADE_CONFIG['symbol'],
-                            round(size_diff, 3),
-                            {'positionSide': 'short'}
-                        )
-                    else:
-                        logger.info(f"空仓减仓 {abs(size_diff):.3f}...")
-                        exchange.create_market_buy_order(
-                            TRADE_CONFIG['symbol'],
-                            round(abs(size_diff), 3),
-                            {'positionSide': 'short'}
-                        )
-                else:
-                    logger.info("已有空头持仓，仓位合适保持现状")
+                logger.info(f"平空仓成功，数量: {current_position['size']}")
             else:
                 logger.info(f"开空仓 {position_size}...")
                 exchange.create_market_sell_order(
