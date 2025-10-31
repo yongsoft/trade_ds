@@ -20,10 +20,10 @@ def setup_logger():
     # 创建logs目录（如果不存在）
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    
+
     # 生成日志文件名（包含日期）
     log_file = log_dir / f"trading_{datetime.now().strftime('%Y%m%d')}.log"
-    
+
     # 从环境变量读取日志级别，默认为INFO
     log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
     log_level_map = {
@@ -34,11 +34,11 @@ def setup_logger():
         'CRITICAL': logging.CRITICAL
     }
     log_level = log_level_map.get(log_level_str, logging.INFO)
-    
+
     # 配置日志格式
     log_format = "%(asctime)s [%(levelname)s] %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
-    
+
     # 配置根日志记录器
     logging.basicConfig(
         level=log_level,
@@ -49,7 +49,7 @@ def setup_logger():
             logging.StreamHandler(sys.stdout)
         ]
     )
-    
+
     return logging.getLogger()
 
 load_dotenv()
@@ -106,12 +106,12 @@ TRADE_CONFIG = {
     'position_management': {
         'enable_intelligent_position': True,  # 🆕 新增：是否启用智能仓位管理
         'base_usdt_amount': 100,  # USDT投入下单基数
-        'high_confidence_multiplier': 1.5,
-        'medium_confidence_multiplier': 1.0,
+        'high_confidence_multiplier': 1,
+        'medium_confidence_multiplier': 0.75,
         'low_confidence_multiplier': 0.5,
         'position_ratio_max': 0.99,  # 总最大仓位比例
         'position_ratio_single_trade': 0.2,
-        'trend_strength_multiplier': 1.2
+        'trend_strength_multiplier': 1.0
     }
 }
 logger.info(f"交易配置: {json.dumps(TRADE_CONFIG, ensure_ascii=False)}")
@@ -120,10 +120,12 @@ logger.info(f"交易配置: {json.dumps(TRADE_CONFIG, ensure_ascii=False)}")
 price_history = []
 signal_history = []
 position = None
+balance_latest: Any = None
 
 
 def setup_exchange():
     """设置交易所参数"""
+    global balance_latest
     try:
         # 获取合约规格信息
         logger.info("获取BTC合约规格...")
@@ -136,8 +138,8 @@ def setup_exchange():
         logger.info(f"设置杠杆倍数: {TRADE_CONFIG['leverage']}x")
 
         # 获取余额
-        balance = exchange.fetch_balance()
-        usdt_balance = balance['USDT']['free']
+        balance_latest = exchange.fetch_balance()
+        usdt_balance = balance_latest['USDT']['free']
         logger.info(f"当前USDT余额: {usdt_balance:.2f}")
 
         # 获取当前持仓状态
@@ -383,7 +385,7 @@ def get_btc_ohlcv():
             'levels_analysis': levels_analysis,
             'full_data': df
         }
-        
+
         logger.info(f"当前价格: ${result['price']:,.2f}, 价格变化: {result['price_change']:+.2f}%")
         return result
     except ccxt.NetworkError as e:
@@ -525,6 +527,7 @@ def create_fallback_signal(price_data):
 def analyze_with_deepseek(price_data):
     """使用DeepSeek分析市场并生成交易信号（增强版）"""
 
+    global balance_latest
     # 生成技术分析文本
     technical_analysis = generate_technical_analysis_text(price_data)
 
@@ -551,8 +554,10 @@ def analyze_with_deepseek(price_data):
 
     # 添加当前持仓信息
     current_pos = get_current_position()
-    position_text = "无持仓" if not current_pos else f"{current_pos['side']}仓, 数量: {current_pos['size']}, 盈亏: {current_pos['unrealized_pnl']:.2f}USDT"
-  
+
+    gain_ratio = current_pos['unrealized_pnl'] / balance_latest['USDT']['used'] if current_pos else 0
+    position_text = "无持仓" if not current_pos else f"{current_pos['side']}仓, 数量: {current_pos['size']}, 本金: {balance_latest['USDT']['used']} 盈亏: {current_pos['unrealized_pnl']:.2f}USDT ,盈利比率： {gain_ratio}"
+
 
     prompt = f"""
     你是一个专业的加密货币交易分析师。请基于以下BTC/USDT {TRADE_CONFIG['timeframe']}周期数据进行分析：
@@ -582,7 +587,7 @@ def analyze_with_deepseek(price_data):
 
     【交易指导原则 - 必须遵守】
     1. **技术分析主导** (权重60%)：趋势、支撑阻力、K线形态是主要依据
-    2. **市场情绪辅助** (权重30%)：情绪数据用于验证技术信号，不能单独作为交易理由  
+    2. **市场情绪辅助** (权重30%)：情绪数据用于验证技术信号，不能单独作为交易理由
     - 情绪与技术同向 → 增强信号信心
     - 情绪与技术背离 → 以技术分析为主，情绪仅作参考
     - 情绪数据延迟 → 降低权重，以实时技术指标为准
@@ -591,15 +596,15 @@ def analyze_with_deepseek(price_data):
     5. 因为做的是btc，做多权重可以大一点点
     6. **信号明确性**:
     - 强势上涨趋势 → BUY信号
-    - 强势下跌趋势 → SELL信号  
+    - 强势下跌趋势 → SELL信号
     - 仅在窄幅震荡、无明确方向时 → HOLD信号
     7. **技术指标权重**:
     - 趋势(均线排列) > RSI > MACD > 布林带
-    - 价格突破关键支撑/阻力位是重要信号 
+    - 价格突破关键支撑/阻力位是重要信号
 
     【当前技术状况分析】
     - 整体趋势: {price_data['trend_analysis'].get('overall', 'N/A')}
-    - 短期趋势: {price_data['trend_analysis'].get('short_term', 'N/A')} 
+    - 短期趋势: {price_data['trend_analysis'].get('short_term', 'N/A')}
     - RSI状态: {price_data['technical_data'].get('rsi', 0):.1f} ({'超买' if price_data['technical_data'].get('rsi', 0) > 70 else '超卖' if price_data['technical_data'].get('rsi', 0) < 30 else '中性'})
     - MACD方向: {price_data['trend_analysis'].get('macd', 'N/A')}
 
@@ -613,7 +618,7 @@ def analyze_with_deepseek(price_data):
         "signal": "BUY|SELL|HOLD",
         "reason": "简要分析理由(包含趋势判断和技术依据)",
         "stop_loss": 具体价格,
-        "take_profit": 具体价格, 
+        "take_profit": 具体价格,
         "confidence": "HIGH|MEDIUM|LOW"
     }}
     """
@@ -686,7 +691,9 @@ def analyze_with_deepseek(price_data):
 
 def calculate_intelligent_position(signal_data, price_data, current_position):
     """计算智能仓位大小"""
+    global balance_latest
     config = TRADE_CONFIG['position_management']
+
 
     # 如果禁用智能仓位，使用固定仓位
     if not config.get('enable_intelligent_position', True):
@@ -695,9 +702,9 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
         return fixed_amount
 
     try:
-        balance = exchange.fetch_balance()
-        usdt_balance = balance['USDT']['free']
-        usdt_used = balance['USDT']['used']
+        balance_latest = exchange.fetch_balance()
+        usdt_balance = balance_latest['USDT']['free']
+        usdt_used = balance_latest['USDT']['used']
         usdt_total = usdt_used + usdt_balance
         base_usdt = config['base_usdt_amount']
 
@@ -717,7 +724,7 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
         if trend in ['强势上涨', '强势下跌']:
             trend_multiplier = config['trend_strength_multiplier']
         else:
-            trend_multiplier = 1.0
+            trend_multiplier = 0.7
 
         # 根据RSI状态调整（超买超卖区域减仓）
         rsi = price_data['technical_data'].get('rsi', 50)
@@ -730,8 +737,8 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
 
         suggested_usdt = usdt_total * confidence_multiplier * trend_multiplier * rsi_multiplier
         max_usdt = usdt_total * config['position_ratio_max']
-        
-    
+
+
         strategy_usdt = min(suggested_usdt, max_usdt)
 
         # 计算本次应该给的仓位
@@ -740,13 +747,14 @@ def calculate_intelligent_position(signal_data, price_data, current_position):
         final_usdt = min(strategy_usdt, batch_usdt)
 
         # 计算BTC数量
-  
+
         contract_size: Any = (final_usdt * TRADE_CONFIG['leverage']) / (price_data['price'] )
 
-        logger.info(f"仓位计算: 信心{confidence_multiplier}x 趋势{trend_multiplier}x RSI{rsi_multiplier}x -> This Batch : {batch_usdt}  Final: {final_usdt:.2f} USDT")
+        logger.info(f"仓位计算: 信心{confidence_multiplier}x 趋势{trend_multiplier}x RSI{rsi_multiplier}x -> 建议 : {suggested_usdt:.2f} USDT")
+        logger.info(f"仓位计算: 本轮次： {batch_usdt:.2f} USDT, 最大允许：{max_usdt:.2f} USDT, 最终: {final_usdt:.2f} USDT")
 
 
-        
+
         contract_size = round(max(contract_size, TRADE_CONFIG.get('min_amount', 0.002)), 3)
 
         logger.info(f"仓位最终: {contract_size} BTC")
@@ -791,7 +799,7 @@ def execute_trade(signal_data, price_data):
                     {'positionSide': 'short'}
                 )
                 logger.info(f"平空仓成功，数量: {current_position['size']}")
-                # 开多仓   
+                # 开多仓
                 time.sleep(2)
                 exchange.create_market_buy_order(
                     TRADE_CONFIG['symbol'],
@@ -969,7 +977,6 @@ def main():
         logger.error(f"程序异常终止: {e}")
         logger.debug(traceback.format_exc())
         return
-
 
 if __name__ == "__main__":
     main()
