@@ -556,8 +556,8 @@ def analyze_with_deepseek(price_data):
     # 添加当前持仓信息
     current_pos = get_current_position()
 
-    gain_ratio = current_pos['unrealized_pnl'] / balance_latest['USDT']['used'] if current_pos else 0
-    position_text = "无持仓" if not current_pos else f"{current_pos['side']}仓, 数量: {current_pos['size']}, 本金: {balance_latest['USDT']['used']} 盈亏: {current_pos['unrealized_pnl']:.2f}USDT ,盈利比率： {gain_ratio}"
+    gain_ratio = current_pos['unrealized_pnl'] *100/ balance_latest['USDT']['used'] if current_pos else 0
+    position_text = "无持仓" if not current_pos else f"{current_pos['side']}仓, 数量: {current_pos['size']}, 本金: {balance_latest['USDT']['used']} 盈亏: {current_pos['unrealized_pnl']:.2f}USDT ,盈利比率： {gain_ratio:.2f}%"
 
 
     prompt = f"""
@@ -592,7 +592,7 @@ def analyze_with_deepseek(price_data):
     - 情绪与技术同向 → 增强信号信心
     - 情绪与技术背离 → 以技术分析为主，情绪仅作参考
     - 情绪数据延迟 → 降低权重，以实时技术指标为准
-    3. **风险管理** (权重10%)：考虑持仓、盈亏状况和止损位置
+    3. **风险管理** (权重10%)：考虑持仓、盈亏状况和止损位置， 在盈利超过20%的时候，考虑止盈， 在亏损超过10%的时候，考虑止亏。 
     4. **趋势跟随**: 明确趋势出现时立即行动，不要过度等待
     5. 因为做的是btc，做多权重可以大一点点
     6. **信号明确性**:
