@@ -17,14 +17,29 @@ import psutil
 from datetime import datetime, timedelta
 from pathlib import Path
 import logging
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 # 配置守护进程日志
 log_dir = Path("logs")
 log_dir.mkdir(exist_ok=True)
 daemon_log = log_dir / f"daemon_{datetime.now().strftime('%Y%m%d')}.log"
 
+# 从环境变量读取日志级别，默认为INFO
+log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
+log_level_map = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
+log_level = log_level_map.get(log_level_str, logging.INFO)
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format="%(asctime)s [DAEMON] [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
@@ -157,7 +172,7 @@ class ProcessMonitor:
             )
             
             self.process_pid = self.process.pid
-            logger.info(f"✅ 进程启动成功，PID: {self.process_pid}")
+            logger.info(f"进程启动成功，PID: {self.process_pid}")
             
             # 重置重启计数（如果距离上次重启超过冷却时间）
             if self.last_restart_time:

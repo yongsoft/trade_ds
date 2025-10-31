@@ -813,7 +813,7 @@ def execute_intelligent_trade(signal_data, price_data):
                         params={'tag': '60bb4a8d3416BCDE'}
                     )
                 else:
-                    print("⚠️ 检测到空头持仓但数量为0，直接开多仓")
+                    print("检测到空头持仓但数量为0，直接开多仓")
                     exchange.create_market_order(
                         TRADE_CONFIG['symbol'],
                         'buy',
@@ -882,7 +882,7 @@ def execute_intelligent_trade(signal_data, price_data):
                         params={'tag': '60bb4a8d3416BCDE'}
                     )
                 else:
-                    print("⚠️ 检测到多头持仓但数量为0，直接开空仓")
+                    print("检测到多头持仓但数量为0，直接开空仓")
                     exchange.create_market_order(
                         TRADE_CONFIG['symbol'],
                         'sell',

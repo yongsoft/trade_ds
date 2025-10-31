@@ -24,13 +24,24 @@ def setup_logger():
     # 生成日志文件名（包含日期）
     log_file = log_dir / f"trading_{datetime.now().strftime('%Y%m%d')}.log"
     
+    # 从环境变量读取日志级别，默认为INFO
+    log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
+    log_level_map = {
+        'DEBUG': logging.DEBUG,
+        'INFO': logging.INFO,
+        'WARNING': logging.WARNING,
+        'ERROR': logging.ERROR,
+        'CRITICAL': logging.CRITICAL
+    }
+    log_level = log_level_map.get(log_level_str, logging.INFO)
+    
     # 配置日志格式
     log_format = "%(asctime)s [%(levelname)s] %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
     
     # 配置根日志记录器
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format=log_format,
         datefmt=date_format,
         handlers=[
@@ -41,11 +52,12 @@ def setup_logger():
     
     return logging.getLogger()
 
+load_dotenv()
+
 # 初始化日志记录器
 logger = setup_logger()
 logger.info("初始化交易机器人...")
 
-load_dotenv()
 
 # 检查必要的环境变量
 if not os.getenv('DEEPSEEK_API_KEY'):
@@ -283,7 +295,7 @@ def get_sentiment_indicators():
                             'data_delay_minutes': data_delay
                         }
 
-                logger.warning("❗ 所有时间段数据都为空")
+                logger.warning("所有时间段数据都为空")
                 return None
 
         return None
@@ -517,7 +529,7 @@ def analyze_with_deepseek(price_data):
     technical_analysis = generate_technical_analysis_text(price_data)
 
     # 构建K线数据文本
-    kline_text = f"【最近5根{TRADE_CONFIG['timeframe']}K线数据】\n"
+    kline_text = f"【最近5根{TRADE_CONFIG['timeframe']} K线数据】\n"
     for i, kline in enumerate(price_data['kline_data'][-5:]):
         trend = "阳线" if kline['close'] > kline['open'] else "阴线"
         change = ((kline['close'] - kline['open']) / kline['open']) * 100
@@ -540,7 +552,7 @@ def analyze_with_deepseek(price_data):
     # 添加当前持仓信息
     current_pos = get_current_position()
     position_text = "无持仓" if not current_pos else f"{current_pos['side']}仓, 数量: {current_pos['size']}, 盈亏: {current_pos['unrealized_pnl']:.2f}USDT"
-    pnl_text = f", 持仓盈亏: {current_pos['unrealized_pnl']:.2f} USDT" if current_pos else ""
+  
 
     prompt = f"""
     你是一个专业的加密货币交易分析师。请基于以下BTC/USDT {TRADE_CONFIG['timeframe']}周期数据进行分析：
@@ -560,7 +572,7 @@ def analyze_with_deepseek(price_data):
     - 本K线最低: ${price_data['low']:,.2f}
     - 本K线成交量: {price_data['volume']:.2f} BTC
     - 价格变化: {price_data['price_change']:+.2f}%
-    - 当前持仓: {position_text}{pnl_text}
+    - 当前持仓: {position_text}
 
     【防频繁交易重要原则】
     1. **趋势持续性优先**: 不要因单根K线或短期波动改变整体趋势判断
@@ -569,12 +581,12 @@ def analyze_with_deepseek(price_data):
     4. **成本意识**: 减少不必要的仓位调整，每次交易都有成本
 
     【交易指导原则 - 必须遵守】
-    1. **技术分析主导** (权酠60%)：趋势、支撑阻力、K线形态是主要依据
-    2. **市场情绪辅助** (权酠30%)：情绪数据用于验证技术信号，不能单独作为交易理由  
+    1. **技术分析主导** (权重60%)：趋势、支撑阻力、K线形态是主要依据
+    2. **市场情绪辅助** (权重30%)：情绪数据用于验证技术信号，不能单独作为交易理由  
     - 情绪与技术同向 → 增强信号信心
     - 情绪与技术背离 → 以技术分析为主，情绪仅作参考
     - 情绪数据延迟 → 降低权重，以实时技术指标为准
-    3. **风险管理** (权酠10%)：考虑持仓、盈亏状况和止损位置
+    3. **风险管理** (权重10%)：考虑持仓、盈亏状况和止损位置
     4. **趋势跟随**: 明确趋势出现时立即行动，不要过度等待
     5. 因为做的是btc，做多权重可以大一点点
     6. **信号明确性**:
@@ -607,7 +619,7 @@ def analyze_with_deepseek(price_data):
     """
 
     logger.info("发送分析请求到DeepSeek")
-    logger.debug(f"DeepSeek请求内容: {prompt}")
+    logger.info(f"DeepSeek请求内容: {prompt}")
 
     try:
         response = deepseek_client.chat.completions.create(
@@ -658,7 +670,7 @@ def analyze_with_deepseek(price_data):
         if len(signal_history) >= 3:
             last_three = [s['signal'] for s in signal_history[-3:]]
             if len(set(last_three)) == 1:
-                logger.warning(f"⚠️ 注意：连续3次{signal_data['signal']}信号")
+                logger.warning(f"注意：连续3次{signal_data['signal']}信号")
 
         logger.info(f"解析交易信号成功: {signal_data['signal']}, 信心: {signal_data['confidence']}")
         return signal_data
@@ -762,7 +774,7 @@ def execute_trade(signal_data, price_data):
 
     # 风险管理
     if signal_data['confidence'] == 'LOW' and not TRADE_CONFIG['test_mode']:
-        logger.warning("⚠️ 低信心信号，跳过执行")
+        logger.warning("低信心信号，跳过执行")
         return
 
     if TRADE_CONFIG['test_mode']:
@@ -780,6 +792,7 @@ def execute_trade(signal_data, price_data):
                 )
                 logger.info(f"平空仓成功，数量: {current_position['size']}")
                 # 开多仓   
+                time.sleep(2)
                 exchange.create_market_buy_order(
                     TRADE_CONFIG['symbol'],
                     position_size,
@@ -824,6 +837,7 @@ def execute_trade(signal_data, price_data):
                     {'positionSide': 'long'}
                 )
                 logger.info(f"平多仓成功，数量: {current_position['size']}")
+                time.sleep(2)
                 # 开空仓
                 exchange.create_market_sell_order(
                     TRADE_CONFIG['symbol'],
