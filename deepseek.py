@@ -1,3 +1,4 @@
+from logging import Logger
 import os
 import time
 from typing import Any
@@ -55,7 +56,7 @@ def setup_logger():
 load_dotenv()
 
 # 初始化日志记录器
-logger = setup_logger()
+logger: Logger = setup_logger()
 logger.info("初始化交易机器人...")
 
 
