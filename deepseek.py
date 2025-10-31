@@ -625,7 +625,7 @@ def analyze_with_deepseek(price_data):
     """
 
     #logger.info("发送分析请求到DeepSeek")
-    logger.info(f"DeepSeek请求内容: {prompt}")
+    #logger.info(f"DeepSeek请求内容: {prompt}")
 
     try:
         response = deepseek_client.chat.completions.create(
@@ -790,7 +790,7 @@ def execute_trade(signal_data, price_data):
     logger.info(f"信心程度: {signal_data['confidence']}")
     logger.info(f"智能仓位: {position_size} BTC")
     logger.info(f"理由: {signal_data['reason']}")
-    logger.info(f"当前持仓: {current_position}")
+    #logger.info(f"当前持仓: {current_position}")
 
     # 风险管理
     if signal_data['confidence'] == 'LOW' and not TRADE_CONFIG['test_mode']:
